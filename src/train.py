@@ -2,9 +2,9 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import ImageFolder
-from PIL import Image
+import random
 import os
 from tqdm import tqdm
 
@@ -14,11 +14,12 @@ def main():
     print(f"Using device: {device}")
 
     # Configuración
-    IMG_SIZE = 224
-    BATCH_SIZE = 32
-    NUM_EPOCHS = 10
+    IMG_SIZE = 128
+    BATCH_SIZE = 16
+    NUM_EPOCHS = 3
     NUM_CLASSES = 101
     LEARNING_RATE = 0.001
+    SAMPLES_PER_CLASS = 100
 
     # Cargar etiquetas
     with open('labels.txt', 'r') as f:
@@ -28,7 +29,6 @@ def main():
     train_transform = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(10),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -40,34 +40,58 @@ def main():
     ])
 
     # Cargar datasets
-    train_dataset = ImageFolder(root='data/food-101/train', transform=train_transform)
-    test_dataset = ImageFolder(root='data/food-101/test', transform=test_transform)
+    full_train_dataset = ImageFolder(root='data/food-101/train', transform=train_transform)
+    full_test_dataset = ImageFolder(root='data/food-101/test', transform=test_transform)
+
+    indices_per_class = {}
+    for idx, (_, label) in enumerate(full_train_dataset.samples):
+        if label not in indices_per_class:
+            indices_per_class[label] = []
+        indices_per_class[label].append(idx)
+
+    selected_indices = []
+    for label in indices_per_class:
+        selected_indices.extend(random.sample(indices_per_class[label], 
+                                           min(SAMPLES_PER_CLASS, len(indices_per_class[label]))))
+
+    train_dataset = Subset(full_train_dataset, selected_indices)
+    test_dataset = Subset(full_test_dataset, range(min(1000, len(full_test_dataset))))
 
     # Usar num_workers=0 para evitar problemas de multiprocesamiento
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
     # Modelo CNN
-    class FoodNet(nn.Module):
+    class FastFoodNet(nn.Module):
         def __init__(self):
-            super(FoodNet, self).__init__()
+            super(FastFoodNet, self).__init__()
             self.features = nn.Sequential(
-                nn.Conv2d(3, 32, 3),
+                nn.Conv2d(3, 32, 3, padding=1),
+                nn.BatchNorm2d(32),
                 nn.ReLU(),
                 nn.MaxPool2d(2),
-                nn.Conv2d(32, 64, 3),
+                
+                nn.Conv2d(32, 64, 3, padding=1),
+                nn.BatchNorm2d(64),
                 nn.ReLU(),
                 nn.MaxPool2d(2),
-                nn.Conv2d(64, 64, 3),
+                
+                nn.Conv2d(64, 128, 3, padding=1),
+                nn.BatchNorm2d(128),
+                nn.ReLU(),
+                nn.MaxPool2d(2),
+                
+                nn.Conv2d(128, 128, 3, padding=1),
+                nn.BatchNorm2d(128),
                 nn.ReLU(),
                 nn.MaxPool2d(2)
             )
             self.classifier = nn.Sequential(
                 nn.Flatten(),
-                nn.Linear(64 * 26 * 26, 64),
+                nn.Linear(128 * 8 * 8, 512),
                 nn.ReLU(),
                 nn.Dropout(0.5),
-                nn.Linear(64, NUM_CLASSES)
+                nn.Linear(512, NUM_CLASSES)
             )
 
         def forward(self, x):
@@ -76,7 +100,7 @@ def main():
             return x
 
     # Crear modelo y moverlo a GPU
-    model = FoodNet().to(device)
+    model = FastFoodNet().to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
@@ -128,24 +152,26 @@ def main():
         return running_loss/len(loader), 100.*correct/total
 
     # Entrenamiento principal
-    print("Iniciando entrenamiento...")
-    best_acc = 0
+    print("Iniciando entrenamiento rápido...")
+    best_acc = 0.0
+    
     for epoch in range(NUM_EPOCHS):
-        print(f"\nEpoch {epoch+1}/{NUM_EPOCHS}")
-        
+        # Entrenamiento
         train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer)
-        test_loss, test_acc = evaluate(model, test_loader, criterion)
         
-        print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
-        print(f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.2f}%")
+        # Evaluación
+        val_loss, val_acc = evaluate(model, test_loader, criterion)
         
-        # Guardar el mejor modelo
-        if test_acc > best_acc:
-            print(f"Accuracy mejorada ({best_acc:.2f}% -> {test_acc:.2f}%). Guardando modelo...")
-            best_acc = test_acc
+        print(f'Epoch {epoch+1}/{NUM_EPOCHS}:')
+        print(f'Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%')
+        print(f'Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%')
+        
+        if val_acc > best_acc:
+            print(f"Guardando modelo ({best_acc:.2f}% -> {val_acc:.2f}%)")
+            best_acc = val_acc
             torch.save(model.state_dict(), 'food_recognition_model.pth')
 
-    print("Entrenamiento completado!")
+    print(f"Entrenamiento rápido completado! Mejor precisión: {best_acc:.2f}%")
 
 if __name__ == '__main__':
     main() 

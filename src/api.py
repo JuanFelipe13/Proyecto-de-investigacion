@@ -9,7 +9,7 @@ import os
 app = FastAPI()
 
 # Configuración
-IMG_SIZE = 224
+IMG_SIZE = 128
 NUM_CLASSES = 101
 
 # Definir el modelo
@@ -17,22 +17,19 @@ class FoodNet(torch.nn.Module):
     def __init__(self):
         super(FoodNet, self).__init__()
         self.features = torch.nn.Sequential(
-            torch.nn.Conv2d(3, 32, 3),
+            torch.nn.Conv2d(3, 16, 3, padding=1),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(32, 64, 3),
+            torch.nn.Conv2d(16, 32, 3, padding=1),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(64, 64, 3),
+            torch.nn.Conv2d(32, 32, 3, padding=1),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2)
         )
         self.classifier = torch.nn.Sequential(
             torch.nn.Flatten(),
-            torch.nn.Linear(64 * 26 * 26, 64),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(0.5),
-            torch.nn.Linear(64, NUM_CLASSES)
+            torch.nn.Linear(32 * 16 * 16, NUM_CLASSES)
         )
 
     def forward(self, x):
@@ -44,7 +41,7 @@ class FoodNet(torch.nn.Module):
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = FoodNet().to(device)
 model_path = os.path.join(os.path.dirname(__file__), '..', 'food_recognition_model.pth')
-model.load_state_dict(torch.load(model_path, weights_only=True))
+model.load_state_dict(torch.load(model_path, map_location=device))
 model.eval()
 
 # Lista de etiquetas
@@ -72,26 +69,38 @@ async def predict(file: UploadFile = File(None), request: Request = None, top_k:
         if image.mode != 'RGB':
             image = image.convert('RGB')
         
-        image = transform(image).unsqueeze(0).to(device)
+        # Asegurarse de que la imagen se procese correctamente
+        image_tensor = transform(image).unsqueeze(0)
+        image_tensor = image_tensor.to(device)
         
         # Realizar predicción
         with torch.no_grad():
-            outputs = model(image)
+            outputs = model(image_tensor)
+            print("Outputs:", outputs)  # Ver las salidas raw del modelo
+            
             probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            top_prob, top_class = torch.topk(probabilities, k=top_k)
+            print("Probabilities:", probabilities)  # Ver las probabilidades
+            
+            top_prob, top_class = torch.topk(probabilities, k=min(top_k, len(labels)))
+            print("Top classes:", top_class)  # Ver las clases predichas
+            print("Top probabilities:", top_prob)  # Ver las probabilidades top
             
             # Preparar resultados
             predictions = []
-            for i in range(top_k):
-                predictions.append({
-                    "class": labels[top_class[0][i].item()],
-                    "confidence": float(top_prob[0][i].item())
-                })
+            for i in range(min(top_k, len(labels))):
+                class_idx = top_class[0][i].item()
+                if class_idx < len(labels):
+                    predictions.append({
+                        "class": labels[class_idx],
+                        "confidence": float(top_prob[0][i].item())
+                    })
         
         return {
             "predictions": predictions
         }
     except Exception as e:
+        # Mejorar el manejo de errores
+        print(f"Error en la predicción: {str(e)}")
         return {"error": str(e)}, 400
 
 if __name__ == "__main__":
