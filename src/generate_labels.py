@@ -102,7 +102,6 @@ food_classes = [
     'waffles'
 ]
 
-# Guardar las etiquetas en un archivo
 with open('labels.txt', 'w') as f:
     for label in food_classes:
         f.write(f"{label}\n")

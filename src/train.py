@@ -9,11 +9,9 @@ import os
 from tqdm import tqdm
 
 def main():
-    # Verificar GPU
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
-    # Configuración
     IMG_SIZE = 128
     BATCH_SIZE = 16
     NUM_EPOCHS = 3
@@ -21,11 +19,9 @@ def main():
     LEARNING_RATE = 0.001
     SAMPLES_PER_CLASS = 100
 
-    # Cargar etiquetas
     with open('labels.txt', 'r') as f:
         labels = [line.strip() for line in f.readlines()]
 
-    # Transformaciones de datos
     train_transform = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.RandomHorizontalFlip(),
@@ -39,7 +35,6 @@ def main():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    # Cargar datasets
     full_train_dataset = ImageFolder(root='data/food-101/train', transform=train_transform)
     full_test_dataset = ImageFolder(root='data/food-101/test', transform=test_transform)
 
@@ -57,11 +52,9 @@ def main():
     train_dataset = Subset(full_train_dataset, selected_indices)
     test_dataset = Subset(full_test_dataset, range(min(1000, len(full_test_dataset))))
 
-    # Usar num_workers=0 para evitar problemas de multiprocesamiento
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
-    # Modelo CNN
     class FastFoodNet(nn.Module):
         def __init__(self):
             super(FastFoodNet, self).__init__()
@@ -99,12 +92,10 @@ def main():
             x = self.classifier(x)
             return x
 
-    # Crear modelo y moverlo a GPU
     model = FastFoodNet().to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-    # Función de entrenamiento
     def train_epoch(model, loader, criterion, optimizer):
         model.train()
         running_loss = 0.0
@@ -131,7 +122,6 @@ def main():
         
         return running_loss/len(loader), 100.*correct/total
 
-    # Función de evaluación
     def evaluate(model, loader, criterion):
         model.eval()
         running_loss = 0.0
@@ -151,15 +141,12 @@ def main():
         
         return running_loss/len(loader), 100.*correct/total
 
-    # Entrenamiento principal
     print("Iniciando entrenamiento rápido...")
     best_acc = 0.0
     
     for epoch in range(NUM_EPOCHS):
-        # Entrenamiento
         train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer)
         
-        # Evaluación
         val_loss, val_acc = evaluate(model, test_loader, criterion)
         
         print(f'Epoch {epoch+1}/{NUM_EPOCHS}:')

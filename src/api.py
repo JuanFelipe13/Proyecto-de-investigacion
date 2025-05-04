@@ -8,11 +8,9 @@ import os
 
 app = FastAPI()
 
-# Configuración
 IMG_SIZE = 128
 NUM_CLASSES = 101
 
-# Definir el modelo
 class FoodNet(torch.nn.Module):
     def __init__(self):
         super(FoodNet, self).__init__()
@@ -37,19 +35,16 @@ class FoodNet(torch.nn.Module):
         x = self.classifier(x)
         return x
 
-# Cargar el modelo
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = FoodNet().to(device)
 model_path = os.path.join(os.path.dirname(__file__), '..', 'food_recognition_model.pth')
 model.load_state_dict(torch.load(model_path, map_location=device))
 model.eval()
 
-# Lista de etiquetas
 labels_path = os.path.join(os.path.dirname(__file__), '..', 'labels.txt')
 with open(labels_path, 'r') as f:
     labels = [line.strip() for line in f.readlines()]
 
-# Transformaciones para la imagen
 transform = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
@@ -63,29 +58,25 @@ async def predict(file: UploadFile = File(None), request: Request = None, top_k:
             image_data = await file.read()
         else:
             image_data = await request.body()
-        
-        # Procesar imagen
+
         image = Image.open(io.BytesIO(image_data))
         if image.mode != 'RGB':
             image = image.convert('RGB')
-        
-        # Asegurarse de que la imagen se procese correctamente
+
         image_tensor = transform(image).unsqueeze(0)
         image_tensor = image_tensor.to(device)
-        
-        # Realizar predicción
+ 
         with torch.no_grad():
             outputs = model(image_tensor)
-            print("Outputs:", outputs)  # Ver las salidas raw del modelo
+            print("Outputs:", outputs) 
             
             probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            print("Probabilities:", probabilities)  # Ver las probabilidades
+            print("Probabilities:", probabilities) 
             
             top_prob, top_class = torch.topk(probabilities, k=min(top_k, len(labels)))
-            print("Top classes:", top_class)  # Ver las clases predichas
-            print("Top probabilities:", top_prob)  # Ver las probabilidades top
-            
-            # Preparar resultados
+            print("Top classes:", top_class) 
+            print("Top probabilities:", top_prob)  
+
             predictions = []
             for i in range(min(top_k, len(labels))):
                 class_idx = top_class[0][i].item()
@@ -99,7 +90,6 @@ async def predict(file: UploadFile = File(None), request: Request = None, top_k:
             "predictions": predictions
         }
     except Exception as e:
-        # Mejorar el manejo de errores
         print(f"Error en la predicción: {str(e)}")
         return {"error": str(e)}, 400
 
